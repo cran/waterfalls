@@ -1,30 +1,31 @@
 #' Create waterfall charts
 #'
 #' @name waterfall
-#' @author Based on \code{grattan_waterfall} from the grattanCharts package (\url{https://github.com/HughParsonage/grattanCharts}).
-#' @param .data a data frame containing two columns, one with the values, the other with the labels
+#' @author Based on \code{grattan_waterfall} from the 'grattanCharts' package (\url{https://github.com/HughParsonage/grattanCharts}).
+#' @param .data a \code{data.frame} containing two columns, one with the values, the other with the labels
 #' @param values a numeric vector making up the heights of the rectangles in the waterfall
 #' @param labels the labels corresponding to each vector, marked on the x-axis
 #' @param rect_text_labels (character) a character vector of the same length as values that are placed on the rectangles
 #' @param rect_text_size size of the text in the rectangles
-#' @param rect_text_labels_anchor (character) How should rect_text_labels be positioned. In future releases, we might have support for north or south anchors, or for directed positioning (negative down, positive up) etc. For now, only centre is supported.
+#' @param rect_text_labels_anchor (character) How should \code{rect_text_labels} be positioned? In future releases, we might have support for north or south anchors, or for directed positioning (negative down, positive up) etc. For now, only centre is supported.
 #' @param put_rect_text_outside_when_value_below (numeric) the text labels accompanying a rectangle of this height will be placed outside the box: below if it's negative; above if it's positive.
-#' @param calc_total (logical) should the final pool of the waterfall be calculated (and placed on the chart)
+#' @param calc_total (logical, default: \code{FALSE}) should the final pool of the waterfall be calculated (and placed on the chart)
 #' @param total_axis_text (character) the text appearing on the axis underneath the total rectangle
 #' @param total_rect_text (character) the text in the middle of the rectangle of the total rectangle
 #' @param total_rect_color the color of the final rectangle
 #' @param total_rect_text_color the color of the final rectangle's label text
 #' @param fill_colours Colours to be used to fill the rectangles, in order. Disregarded if \code{fill_by_sign} is \code{TRUE} (the default).
-#' @param fill_by_sign (logical) should positive and negative values each have the same colour?
+#' @param fill_by_sign (logical, default: \code{TRUE}) should positive and negative values each have the same colour?
 #' @param rect_width (numeric) the width of the rectangle, relative to the space between each label factor
-#' @param rect_border the border around each rectangle. Choose NA if no border is desired.
-#' @param draw_lines (logical) should lines be drawn between successive rectangles
+#' @param rect_border the border around each rectangle. Choose \code{NA} if no border is desired.
+#' @param draw_lines (logical, default: \code{TRUE}) should lines be drawn between successive rectangles
 #' @param linetype the linetype for the draw_lines
 #' @param lines_anchors a character vector of length two specifying the horizontal placement of the drawn lines relative to the preceding and successive rectangles, respectively
 #' @param draw_axis.x (character) one of "none", "behind", "front" whether to draw an x.axis line and whether to draw it behind or in front of the rectangles, default is behind
 #' @param theme_text_family (character) Passed to the \code{text} argument in \code{ggplot2::theme}.
+#' @param scale_y_to_waterfall (logical, default: \code{TRUE}) Should the default range of the y-axis be from the bottom of the lowest pool to the top of the highest? If \code{FALSE}, which was the only option before version 0.1.2, the range of the plot is more balanced around the y-axis.
 #' @param print_plot (logical) Whether or not the plot should be printed. By default, \code{TRUE}, which means it cannot be assigned.
-#' @param ggplot_object_name (character) A quoted valid object name to which ggplot layers may be addded after the function has run. Ignored if \code{print} is \code{FALSE}.
+#' @param ggplot_object_name (character) A quoted valid object name to which ggplot layers may be added after the function has run. Ignored if \code{print} is \code{FALSE}.
 #' @examples
 #' waterfall(values = round(rnorm(5), 1), labels = letters[1:5], calc_total = TRUE)
 #' waterfall(.data = data.frame(category = letters[1:5],
@@ -54,31 +55,60 @@ waterfall <- function(.data = NULL,
                       linetype = "dashed",
                       draw_axis.x = "behind",
                       theme_text_family = "",
+                      scale_y_to_waterfall = TRUE,
                       print_plot = FALSE,
-                      ggplot_object_name = "mywaterfall"){
-  if(!is.null(.data)){
-    if(ncol(.data) == 2 &&
-       sum(
-         c("character" %in% sapply(.data, class),
-           "factor"    %in% sapply(.data, class),
-           "numeric"   %in% sapply(.data, class))
-       ) == 2){
-      .data_values <- .data[ ,which(sapply(.data, class) == "numeric")]
-      .data_labels <- .data[ ,which(sapply(.data, class) != "numeric")]
-    } else {
-      stop(".data should have two columns, one numeric, the other character or factor")
+                      ggplot_object_name = "mywaterfall") {
+  if (!is.null(.data)) {
+    
+    if (!is.data.frame(.data)) {
+      stop("`.data` was a ", class(.data)[1], ", but must be a data.frame.")
     }
-    if(!missing(values) && !missing(labels))
+    
+    if (ncol(.data) < 2L) {
+      stop("`.data` had fewer than two columns, yet two are required: labels and values.")
+    }
+    
+    dat <- as.data.frame(.data)
+    char_cols <- vapply(dat, is.character, FALSE)
+    factor_cols <- vapply(dat, is.factor, FALSE)
+    num_cols <- vapply(dat, is.numeric, FALSE)
+    
+    if (!xor(num_cols[1], num_cols[2]) ||
+        sum(char_cols[1:2], factor_cols[1:2], num_cols[1:2]) != 2L) {
+      const_width_name <- function(noms) {
+        if (is.data.frame(noms)) {
+          noms <- names(noms)
+        }
+        max_width <- max(nchar(noms))
+        formatC(noms, width = max_width)
+      }
+      
+      stop("`.data` did not contain exactly one numeric column and exactly one character or factor ",
+           "column in its first two columns.\n\t", 
+           "1st column: '", const_width_name(dat)[1], "'\t", sapply(dat, class)[1], "\n\t",
+           "2nd column: '", const_width_name(dat)[2], "'\t", sapply(dat, class)[2])
+    }
+    
+    if (num_cols[1L]) {
+      .data_values <- .subset2(dat, 1L)
+      .data_labels <- .subset2(dat, 2L)
+    } else {
+      .data_values <- .subset2(dat, 2L)
+      .data_labels <- .subset2(dat, 1L)
+    }
+    
+    if (!missing(values) && !missing(labels)) {
       warning(".data and values and labels supplied, .data ignored")
-    else {
+    } else {
       values <- .data_values
       labels <- as.character(.data_labels)
     }
   }
   
-  if(!(length(values) == length(labels) &&
-       length(values) == length(rect_text_labels)))
+  if (!(length(values) == length(labels) &&
+        length(values) == length(rect_text_labels))) {
     stop("values, labels, fill_colours, and rect_text_labels must all have same length")
+  }
   
   if (rect_width > 1)
     warning("rect_Width > 1, your chart may look terrible")
@@ -90,7 +120,7 @@ waterfall <- function(.data = NULL,
   # fill by sign means rectangles' fill colour is given by whether they are going up or down
   gg_color_hue <- function(n) {
     hues = seq(15, 375, length = n + 1)
-    grDevices::hcl(h = hues, l = 65, c = 100)[1:n]
+    grDevices::hcl(h = hues, l = 65, c = 100)[seq_len(n)]
   }
   if(fill_by_sign){
     if (!is.null(fill_colours)){
@@ -123,18 +153,34 @@ waterfall <- function(.data = NULL,
   if (grepl("^r", lines_anchors[2]))
     anchor_right <- rect_width / 2
   
-  if (!calc_total){
-    p <-
-      ggplot2::ggplot(data.frame(x = labels,
-                                 y = values), ggplot2::aes_string(x = "x", y = "y")) +
+  if (!calc_total) {
+    p <- 
+      if (scale_y_to_waterfall) {
+        ggplot2::ggplot(data.frame(x = c(labels, labels),
+                                   y = c(south_edge, north_edge)),
+                        ggplot2::aes_string(x = "x", y = "y")) 
+      } else {
+        ggplot2::ggplot(data.frame(x = labels, y = values),
+                        ggplot2::aes_string(x = "x", y = "y"))
+      }
+    p <- p +
       ggplot2::geom_blank() +
       ggplot2::theme(axis.title = ggplot2::element_blank())
   } else {
     p <-
-      ggplot2::ggplot(data.frame(x = c(labels, total_axis_text),
-                                 y = c(values, north_edge[number_of_rectangles])
-      ),
-      ggplot2::aes_string(x = "x", y = "y")) +
+      if (scale_y_to_waterfall) {
+        ggplot2::ggplot(data.frame(x = c(labels, total_axis_text,
+                                         labels, total_axis_text),
+                                   y = c(south_edge, north_edge,
+                                         south_edge[number_of_rectangles],
+                                         north_edge[number_of_rectangles])),
+                        ggplot2::aes_string(x = "x", y = "y"))
+      } else {
+        ggplot2::ggplot(data.frame(x = c(labels, total_axis_text),
+                                   y = c(values, north_edge[number_of_rectangles])),
+                        ggplot2::aes_string(x = "x", y = "y"))
+      } 
+    p <- p +
       ggplot2::geom_blank() +
       ggplot2::theme(axis.title = ggplot2::element_blank())
   }
